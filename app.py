@@ -908,4 +908,5 @@ elif module == "Generador de Informe PDF (Completo)":
             label="⬇️ Descargar Informe PDF",
             data=pdf_bytes,
             file_name="informe_visita_control_mvp.pdf",
-            mime="application/pdf")
+            mime="application/pdf"
+        )
