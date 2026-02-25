@@ -1,5 +1,12 @@
+<<<<<<< HEAD
 streamlit
 pandas
 plotly
 gspread
+=======
+streamlit
+pandas
+plotly
+gspread
+>>>>>>> f2a2ef5cbc135bc588eb48799d6f70eeebf3bb9d
 oauth2client
