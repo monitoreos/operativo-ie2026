@@ -1,5 +1,6 @@
 streamlit
 pandas
 gspread
-oauth2client
 reportlab
+google-auth
+google-auth-oauthlib

@@ -5,7 +5,7 @@ from datetime import datetime
 import streamlit as st
 import pandas as pd
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2.service_account import Credentials
 
 # ====== PDF (MVP) ======
 from reportlab.lib.pagesizes import A4
@@ -54,19 +54,17 @@ login()
 # -------------------------
 @st.cache_resource
 def get_gspread_client():
-    scope = [
-        "https://spreadsheets.google.com/feeds",
-        "https://www.googleapis.com/auth/drive",
-    ]
     creds_dict = dict(st.secrets["google_service_account"])
 
-    # Normaliza saltos de línea por si vienen escapados como \\n
-    if "private_key" in creds_dict and isinstance(creds_dict["private_key"], str):
-        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+    credentials = Credentials.from_service_account_info(
+        creds_dict,
+        scopes=[
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ],
+    )
 
-    credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-    client = gspread.authorize(credentials)
-    return client
+    return gspread.authorize(credentials)
 
 
 
