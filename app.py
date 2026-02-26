@@ -143,8 +143,14 @@ def load_all_sheets(spreadsheet_name: str) -> pd.DataFrame:
 
 
 
-    return df_base, df_actas_full
+    # 🔗 HACER MERGE BASE + ACTAS
+    df_merged = df_actas_full.merge(
+        df_base,
+        on=key_col,
+        how="left"
+    )
 
+    return df_merged
 
 
 
@@ -258,35 +264,27 @@ SPREADSHEET_NAME = "BASE_CONSOLIDADA_OPERATIVO_2026"
 
 with st.spinner("Cargando todas las actas desde Google Sheets..."):
 
-    df_base_raw, df_actas_raw = load_all_sheets(SPREADSHEET_NAME)
+    df_full_raw = load_all_sheets(SPREADSHEET_NAME)
+    df_full = normalize_columns(df_full_raw)
 
 
 
+    
 
-df_base = normalize_columns(df_base_raw)
-df_actas = normalize_columns(df_actas_raw)
-
-# Columnas base
-
-COL_ACTA = best_col(df_actas, ["acta"])
-COL_UGEL = best_col(df_base, ["ugel", "ugel_1", ...])
-COL_CODMOD = best_col(df_base, ["codigo_modular", ...])
 
 
 
 
 
 # Columnas BASE (metadatos vienen de BASE_CONSOLIDADA)
-COL_UGEL = best_col(df_base, ["ugel", "ugel_1", "dre_ugel", "d_dreugel", "ugel_x", "ugel_y"])
-COL_CODMOD = best_col(df_base, ["codigo_modular", "cod_mod", "cod_modular"])
-COL_FECHA = best_col(df_base, ["fecha_visita", "fecha", "fecha_de_visita"])
-COL_DEP = best_col(df_base, ["departamento_final", "departamento", "dpto", "d_dpto"])
-COL_PROV = best_col(df_base, ["provincia_final"])
-COL_DIST = best_col(df_base, ["distrito_final"])
-COL_IE = best_col(df_base, ["nombre_ie_final"])
-
-# Acta viene de las hojas ACTA 01–06
-COL_ACTA = best_col(df_actas, ["acta"])
+COL_UGEL = best_col(df_full, ["ugel", "ugel_1", "dre_ugel", "d_dreugel", "ugel_x", "ugel_y"])
+COL_CODMOD = best_col(df_full, ["codigo_modular", "cod_mod", "cod_modular"])
+COL_FECHA = best_col(df_full, ["fecha_visita", "fecha", "fecha_de_visita"])
+COL_DEP = best_col(df_full, ["departamento_final", "departamento", "dpto", "d_dpto"])
+COL_PROV = best_col(df_full, ["provincia_final"])
+COL_DIST = best_col(df_full, ["distrito_final"])
+COL_IE = best_col(df_full, ["nombre_ie_final"])
+COL_ACTA = best_col(df_full, ["acta"])
 
 # ==========================
 # 🔎 MODO DEBUG (opcional)
@@ -295,8 +293,7 @@ DEBUG = False
 
 if DEBUG:
     st.write("Columnas detectadas en el dataframe:")
-    st.write("BASE:", df_base.columns.tolist())
-    st.write("ACTAS:", df_actas.columns.tolist())
+    st.write("FULL:", df_full.columns.tolist())
     st.write("Columna Acta detectada:", COL_ACTA)
     st.write("Columna UGEL detectada:", COL_UGEL)
     st.write("Columna Código Modular detectada:", COL_CODMOD)
@@ -324,7 +321,7 @@ if missing_required:
     )
     st.stop()
 
-df_actas = coerce_acta(df_actas, COL_ACTA)
+df_full = coerce_acta(df_full, COL_ACTA)
 
 # Metadatos conocidos (se excluyen del módulo de “preguntas”)
 
@@ -422,8 +419,8 @@ st.sidebar.success(f"Usuario: {st.session_state.get('user','')}")
 
 
 # Actas / UGEL para filtros
-acta_list = ["TODAS"] + sorted(df_actas[COL_ACTA].dropna().unique().tolist())
-ugel_list = ["TODAS"] + sorted(df_base[COL_UGEL].dropna().unique().tolist())
+acta_list = ["TODAS"] + sorted(df_full[COL_ACTA].dropna().unique().tolist())
+ugel_list = ["TODAS"] + sorted(df_full[COL_UGEL].dropna().unique().tolist())
 
 
 st.sidebar.markdown("---")
@@ -443,14 +440,14 @@ ugel_sel = st.sidebar.selectbox("UGEL", ugel_list)
 
 # Departamento
 if COL_DEP:
-    dep_list = ["TODOS"] + sorted(df_base[COL_DEP].dropna().unique())
+    dep_list = ["TODOS"] + sorted(df_full[COL_DEP].dropna().unique())
     dep_sel = st.sidebar.selectbox("Departamento", dep_list)
 else:
     dep_sel = "TODOS"
 
 # Provincia dependiente
 if COL_PROV and COL_DEP:
-    df_temp = df_base if dep_sel == "TODOS" else df_base[df_base[COL_DEP] == dep_sel]
+    df_temp = df_full if dep_sel == "TODOS" else df_full[df_full[COL_DEP] == dep_sel]
     prov_list = ["TODOS"] + sorted(df_temp[COL_PROV].dropna().unique())
     prov_sel = st.sidebar.selectbox("Provincia", prov_list)
 else:
@@ -465,19 +462,19 @@ else:
     dist_sel = "TODOS"
 
 # Código Modular
-codmod_list = ["TODOS"] + sorted(df_base[COL_CODMOD].dropna().unique())
+codmod_list = ["TODOS"] + sorted(df_full[COL_CODMOD].dropna().unique())
 codmod_sel = st.sidebar.selectbox("Código Modular", codmod_list)
 
 # Institución Educativa
 if COL_IE:
-    ie_list = ["TODOS"] + sorted(df_base[COL_IE].dropna().unique())
+    ie_list = ["TODOS"] + sorted(df_full[COL_IE].dropna().unique())
     ie_sel = st.sidebar.selectbox("Institución Educativa", ie_list)
 else:
     ie_sel = "TODOS"
 
 
-df_base_filtrado = apply_all_filters(
-    df_base,
+df_filtrado = apply_all_filters(
+    df_full,
     acta_sel,
     ugel_sel,
     dep_sel,
@@ -487,16 +484,6 @@ df_base_filtrado = apply_all_filters(
     ie_sel
 )
 
-df_actas_filtrado = apply_all_filters(
-    df_actas,
-    acta_sel,
-    ugel_sel,
-    dep_sel,
-    prov_sel,
-    dist_sel,
-    codmod_sel,
-    ie_sel
-)
 
 
 
@@ -525,7 +512,7 @@ if module == "Inicio / KPIs Estratégicos":
 
 
 
-    df_f = df_actas_filtrado
+    df_f = df_filtrado
 
     # KPIs
     total_registros = len(df_f)
@@ -581,7 +568,7 @@ elif module == "Seguimiento y Control de Actas":
 
 
 
-    df_f = df_actas_filtrado
+    df_f = df_filtrado
 
     # Matriz de completitud por cod_mod
     pivot = (
@@ -636,7 +623,7 @@ elif module == "Análisis por Pregunta":
 
 
 
-    df_f = df_actas_filtrado
+    df_f = df_filtrado
 
     question_cols_filtradas = detect_question_columns(df_f, KNOWN_META)
 
@@ -705,7 +692,7 @@ elif module == "Generador de Informe PDF (Completo)":
     
 
 
-    df_f = df_actas_filtrado
+    df_f = df_filtrado
 
     if df_f.empty:
         st.warning("No hay datos con los filtros seleccionados.")
