@@ -75,7 +75,7 @@ def get_gspread_client():
 @st.cache_data(ttl=300)
 def load_all_sheets(spreadsheet_name: str) -> pd.DataFrame:
     client = get_gspread_client()
-    spreadsheet = client.open(spreadsheet_name)
+    spreadsheet = client.open_by_key("1mKljLk6nKMq5o6xSk_pBsFVHHqkX4VDP7dhGrd-nOIU")
 
     worksheets = spreadsheet.worksheets()
 
