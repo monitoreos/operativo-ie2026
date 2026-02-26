@@ -284,7 +284,7 @@ COL_DEP = best_col(df_full, ["departamento_final", "departamento", "dpto", "d_dp
 COL_PROV = best_col(df_full, ["provincia_final"])
 COL_DIST = best_col(df_full, ["distrito_final"])
 COL_IE = best_col(df_full, ["nombre_ie_final"])
-COL_ACTA = best_col(df_full, ["acta"])
+COL_ACTA = best_col(df_full, ["acta", "acta_x", "acta_y"])
 
 # ==========================
 # 🔎 MODO DEBUG (opcional)
