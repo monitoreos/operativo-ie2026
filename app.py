@@ -15,6 +15,11 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.units import cm
 
 
+
+
+
+
+
 # -------------------------
 # ⚙️ CONFIG STREAMLIT
 # -------------------------
@@ -359,37 +364,38 @@ KNOWN_META = {c for c in KNOWN_META if c is not None}
 
 
 
-def apply_all_filters(
-    df_in,
-    acta_sel,
-    ugel_sel,
-    dep_sel,
-    prov_sel,
-    dist_sel,
-    codmod_sel,
-    ie_sel
-):
+def apply_all_filters(df_in, acta_sel, ugel_sel, dep_sel, prov_sel, dist_sel, codmod_sel, ie_sel):
+    """
+    Aplica los filtros de manera dinámica en función de las selecciones hechas.
+    """
     out = df_in.copy()
 
+    # Filtrar por Acta
     if acta_sel != "TODAS":
         out = out[out[COL_ACTA] == acta_sel]
 
+    # Filtrar por UGEL
     if ugel_sel != "TODAS":
         out = out[out[COL_UGEL] == ugel_sel]
 
-    if COL_DEP and dep_sel != "TODOS":
+    # Filtrar por Departamento
+    if dep_sel != "TODOS":
         out = out[out[COL_DEP] == dep_sel]
 
-    if COL_PROV and prov_sel != "TODOS":
+    # Filtrar por Provincia (dependiente del Departamento)
+    if prov_sel != "TODOS" and COL_PROV:
         out = out[out[COL_PROV] == prov_sel]
 
-    if COL_DIST and dist_sel != "TODOS":
+    # Filtrar por Distrito (dependiente de la Provincia)
+    if dist_sel != "TODOS" and COL_DIST:
         out = out[out[COL_DIST] == dist_sel]
 
+    # Filtrar por Código Modular
     if codmod_sel != "TODOS":
         out = out[out[COL_CODMOD] == codmod_sel]
 
-    if COL_IE and ie_sel != "TODOS":
+    # Filtrar por Institución Educativa
+    if ie_sel != "TODOS" and COL_IE:
         out = out[out[COL_IE] == ie_sel]
 
     return out
@@ -421,25 +427,30 @@ st.sidebar.success(f"Usuario: {st.session_state.get('user','')}")
 
 
 
+
+
+
+
 # Actas / UGEL para filtros
 acta_list = ["TODAS"] + sorted(df_actas[COL_ACTA].dropna().unique().tolist())
 ugel_list = ["TODAS"] + sorted(df_base[COL_UGEL].dropna().unique().tolist())
 
-
 st.sidebar.markdown("---")
-
-
 
 st.sidebar.subheader("Filtros Globales")
 
 # Acta
 acta_sel = st.sidebar.selectbox("Acta", acta_list)
 
-# UGEL
+
+
+
+# Filtrar los datos según el acta seleccionado
+df_actas_filtrado = apply_all_filters(df_actas, acta_sel, "TODAS", "TODOS", "TODOS", "TODOS", "TODOS", "TODOS") 
+
+# Filtrar el filtro UGEL en base a la selección de acta
+ugel_list = ["TODAS"] + sorted(df_actas_filtrado[COL_UGEL].dropna().unique().tolist())
 ugel_sel = st.sidebar.selectbox("UGEL", ugel_list)
-
-
-
 
 # Departamento
 if COL_DEP:
@@ -448,52 +459,54 @@ if COL_DEP:
 else:
     dep_sel = "TODOS"
 
-# Provincia dependiente
-if COL_PROV and COL_DEP:
-    df_temp = df_base if dep_sel == "TODOS" else df_base[df_base[COL_DEP] == dep_sel]
-    prov_list = ["TODOS"] + sorted(df_temp[COL_PROV].dropna().unique())
-    prov_sel = st.sidebar.selectbox("Provincia", prov_list)
-else:
-    prov_sel = "TODOS"
 
-# Distrito dependiente
-if COL_DIST and COL_PROV:
-    df_temp2 = df_temp if prov_sel == "TODOS" else df_temp[df_temp[COL_PROV] == prov_sel]
-    dist_list = ["TODOS"] + sorted(df_temp2[COL_DIST].dropna().unique())
-    dist_sel = st.sidebar.selectbox("Distrito", dist_list)
-else:
-    dist_sel = "TODOS"
-
-# Código Modular
-codmod_list = ["TODOS"] + sorted(df_base[COL_CODMOD].dropna().unique())
+# Filtrar el código modular en base a los filtros previos (si es necesario)
+codmod_list = ["TODOS"] + sorted(df_base[df_base[COL_DEP] == dep_sel][COL_CODMOD].dropna().unique())
 codmod_sel = st.sidebar.selectbox("Código Modular", codmod_list)
 
-# Institución Educativa
+# Filtrar Institución Educativa en base al código modular seleccionado
+# Filtrar Institución Educativa en base a los filtros anteriores
 if COL_IE:
-    ie_list = ["TODOS"] + sorted(df_base[COL_IE].dropna().unique())
+    # Filtrar las instituciones educativas según el Departamento, Provincia y Código Modular
+    if dep_sel != "TODOS":
+        filtered_df = df_base[df_base[COL_DEP] == dep_sel]
+  
+    else:
+        filtered_df = df_base
+
+    # Filtrar las Instituciones Educativas de acuerdo con el DataFrame filtrado
+    ie_list = ["TODOS"] + sorted(filtered_df[COL_IE].dropna().unique())
+
+    # Mostrar el selectbox con las instituciones educativas filtradas
     ie_sel = st.sidebar.selectbox("Institución Educativa", ie_list)
 else:
     ie_sel = "TODOS"
 
 
+
+# Después de los filtros, aplica todos los filtros globales de forma dinámica
 df_base_filtrado = apply_all_filters(
     df_base,
     acta_sel,
     ugel_sel,
     dep_sel,
-    prov_sel,
-    dist_sel,
+    "TODOS",  # Provincia se ha eliminado
+    "TODOS",  # Distrito se ha eliminado
     codmod_sel,
     ie_sel
 )
+
+
+
+
 
 df_actas_filtrado = apply_all_filters(
     df_actas,
     acta_sel,
     ugel_sel,
     dep_sel,
-    prov_sel,
-    dist_sel,
+    "TODOS",  # Provincia se ha eliminado
+    "TODOS",  # Distrito se ha eliminado
     codmod_sel,
     ie_sel
 )
@@ -508,7 +521,7 @@ df_actas_filtrado = apply_all_filters(
 # -------------------------
 # 🧱 LAYOUT PRINCIPAL
 # -------------------------
-st.title("📊 Dashboard Operativo CGR 2026")
+st.title("📊 Megaopperativo CGR Buen inicio de Año Escolar 2026")
 
 
 # =========================================================
@@ -567,8 +580,16 @@ if module == "Inicio / KPIs Estratégicos":
     )
     st.dataframe(resumen_ugel, use_container_width=True, height=420)
 
+    # Eliminar las columnas no deseadas
+    columns_to_remove = ["llave_unica", "marca_temporal", "nombre_ie", "provincia", "distrito", "direccion"]
+    df_f_cleaned = df_f.drop(columns=columns_to_remove, errors='ignore')
+    df_f_cleaned = df_f_cleaned[[COL_ACTA] + [col for col in df_f_cleaned.columns if col != COL_ACTA]]
+
+  
+
+    # Vista previa de datos filtrados (sin las columnas no deseadas)
     st.markdown("### 🧾 Vista de datos filtrados")
-    st.dataframe(df_f, use_container_width=True, height=520)
+    st.dataframe(df_f_cleaned, use_container_width=True, height=520)
 
 
 # =========================================================
@@ -614,17 +635,20 @@ elif module == "Seguimiento y Control de Actas":
     min_actas = st.sidebar.slider("Mínimo de actas registradas", 0, 6, 0)
 
     out = binm.copy()
-    if show_only_incomplete:
-        out = out[out["estado"] == "INCOMPLETO"]
-    out = out[out["avance_actas"] >= min_actas]
 
-    # Identificar qué actas faltan (texto)
-    def faltantes(row):
-        missing = [a for a in [f"ACTA {i:02d}" for i in range(1, 7)] if row[a] == 0]
-        return ", ".join(missing) if missing else ""
-    out["actas_faltantes"] = out.apply(faltantes, axis=1)
+    # 🔗 Agregar nombre_ie_final desde BASE
+    if COL_IE:
+        base_ie = df_base[[COL_CODMOD, COL_IE]].drop_duplicates()
 
-    st.markdown("### 🚨 Matriz de Control (1 = registrado, 0 = faltante)")
+        out = (
+            out.reset_index()
+            .merge(base_ie, on=COL_CODMOD, how="left")
+            .set_index(COL_CODMOD)
+        )
+
+    # Reordenar columnas (nombre_ie_final al inicio)
+    cols = [COL_IE] + [c for c in out.columns if c != COL_IE]
+    out = out[cols]
     st.dataframe(out.reset_index().rename(columns={COL_CODMOD: "codigo_modular"}), use_container_width=True, height=600)
 
 
@@ -729,18 +753,6 @@ elif module == "Generador de Informe PDF (Completo)":
 
 
 
-    
-
-
-
-    st.markdown("### 📌 Seleccione pregunta para incluir en el PDF")
-
-    pregunta_col = st.selectbox(
-        "Pregunta (columna) para incluir en el PDF",
-        question_cols_filtradas,
-        key="pdf_pregunta_select"
-    )
-
     # -------- PDF COMPLETO --------
     def build_pdf():
         buffer = io.BytesIO()
@@ -798,6 +810,10 @@ elif module == "Generador de Informe PDF (Completo)":
         buffer.seek(0)
         return buffer.getvalue()
 
+
+
+
+
     if st.button("📄 Generar Informe Completo"):
         pdf_bytes = build_pdf()
         st.download_button(
@@ -806,6 +822,24 @@ elif module == "Generador de Informe PDF (Completo)":
             "informe_visita_control_completo.pdf",
             "application/pdf"
         )
+
+
+
+
+
+
+
+    st.markdown("### 📌 Seleccione pregunta para incluir en el PDF")
+
+    pregunta_col = st.selectbox(
+        "Pregunta (columna) para incluir en el PDF",
+        question_cols_filtradas,
+        key="pdf_pregunta_select"
+    )
+
+    
+
+    
 
 
     
