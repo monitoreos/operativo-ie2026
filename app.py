@@ -4,6 +4,7 @@ from datetime import datetime
 
 import streamlit as st
 import pandas as pd
+import matplotlib.pyplot as plt
 import gspread
 from google.oauth2.service_account import Credentials
 
@@ -11,7 +12,7 @@ from google.oauth2.service_account import Credentials
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
 from reportlab.lib.units import cm
 
 
@@ -84,6 +85,7 @@ def load_all_sheets(spreadsheet_name: str) -> pd.DataFrame:
 
     df_base = None
     df_actas = []
+    df_situaciones = None
 
     for ws in worksheets:
         sheet_name = ws.title.strip().upper()
@@ -118,10 +120,17 @@ def load_all_sheets(spreadsheet_name: str) -> pd.DataFrame:
         if sheet_name == "BASE_CONSOLIDADA":
             df_base = temp_df
 
+        # 🔹 SITUACIONES
+        elif sheet_name == "SITUACIONES":
+            df_situaciones = temp_df
+
         # 🔹 ACTAS
         elif sheet_name.startswith("ACTA"):
             temp_df["acta"] = sheet_name
             df_actas.append(temp_df)
+
+
+
 
     if df_base is None:
         st.error("No se encontró la pestaña BASE_CONSOLIDADA.")
@@ -148,7 +157,10 @@ def load_all_sheets(spreadsheet_name: str) -> pd.DataFrame:
 
 
 
-    return df_base, df_actas_full
+    if df_situaciones is None:
+        df_situaciones = pd.DataFrame()
+
+    return df_base, df_actas_full, df_situaciones
 
 
 
@@ -250,6 +262,132 @@ def generar_cuadro_resumen(df_filtrado, question_cols):
 
 
 
+    # =========================================================
+# ⚠️ FUNCIONES SITUACIONES ADVERSAS
+# =========================================================
+
+def construir_resumen_situaciones(df_situaciones: pd.DataFrame):
+
+    df = df_situaciones.copy()
+    df.columns = df.columns.str.strip().str.lower()
+
+    if "región" not in df.columns:
+        st.error("No se encontró la columna REGIÓN.")
+        return pd.DataFrame()
+
+    columnas_excluir = ["región", "ugel"]
+
+    columnas_situaciones = [
+        col for col in df.columns
+        if col not in columnas_excluir
+    ]
+
+    if not columnas_situaciones:
+        st.warning("No se detectaron columnas de situaciones.")
+        return pd.DataFrame()
+
+    # 🔥 CONVERTIR A NUMÉRICO CORRECTAMENTE
+    for col in columnas_situaciones:
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+
+    # 🔥 SUMA REAL (ya no concatenación)
+    df["total_situaciones"] = df[columnas_situaciones].sum(axis=1)
+
+    resumen = (
+        df.groupby("región", as_index=False)["total_situaciones"]
+        .sum()
+        .sort_values("total_situaciones", ascending=False)
+    )
+
+    return resumen
+
+
+def fig_situaciones_top(df_plot: pd.DataFrame, titulo: str):
+
+    total_general = int(df_plot["total_situaciones"].sum())
+
+    fig, ax = plt.subplots(figsize=(14, 7))
+
+    df_plot = df_plot.sort_values("total_situaciones", ascending=False)
+
+    bars = ax.bar(
+        df_plot["región"],
+        df_plot["total_situaciones"]
+    )
+
+    ax.set_title(titulo, fontsize=16, fontweight="bold")
+    ax.set_ylabel("Total de Situaciones")
+    ax.set_xlabel("Región")
+
+    ax.tick_params(axis="x", rotation=45)
+
+    # 🔥 Valores encima de cada barra
+    for bar, value in zip(bars, df_plot["total_situaciones"]):
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height(),
+            str(int(value)),
+            ha="center",
+            va="bottom",
+            fontsize=10,
+            fontweight="bold"
+        )
+
+    # 🔥 TOTAL DINÁMICO DENTRO DEL GRÁFICO
+    ax.text(
+        0.99,
+        0.95,
+        f"TOTAL: {total_general}",
+        transform=ax.transAxes,
+        ha="right",
+        va="top",
+        fontsize=13,
+        fontweight="bold",
+        bbox=dict(boxstyle="round,pad=0.4", facecolor="white", edgecolor="black")
+    )
+
+    plt.tight_layout()
+    return fig
+
+def fig_to_png_bytes(fig):
+    buffer = io.BytesIO()
+    fig.savefig(buffer, format="png", bbox_inches="tight", dpi=200)
+    buffer.seek(0)
+    plt.close(fig)
+    return buffer
+
+
+def build_situaciones_pdf(df_resumen: pd.DataFrame, titulo: str):
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    styles = getSampleStyleSheet()
+    story = []
+
+    story.append(Paragraph("REPORTE DE SITUACIONES ADVERSAS", styles["Title"]))
+    story.append(Spacer(1, 12))
+
+    # 🔥 Título dinámico dentro del PDF
+    story.append(Paragraph(titulo, styles["Heading2"]))
+    story.append(Spacer(1, 12))
+
+    # 🔥 Eliminar ceros también en PDF
+    df_resumen = df_resumen[df_resumen["total_situaciones"] > 0]
+
+    fig = fig_situaciones_top(
+        df_resumen,
+        titulo
+    )
+
+    img_buffer = fig_to_png_bytes(fig)
+    story.append(Image(img_buffer, width=16*cm, height=9*cm))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+
 
 
 
@@ -263,13 +401,11 @@ SPREADSHEET_NAME = "BASE_CONSOLIDADA_OPERATIVO_2026"
 
 with st.spinner("Cargando todas las actas desde Google Sheets..."):
 
-    df_base_raw, df_actas_raw = load_all_sheets(SPREADSHEET_NAME)
-
-
-
+    df_base_raw, df_actas_raw, df_situaciones_raw = load_all_sheets(SPREADSHEET_NAME)
 
 df_base = normalize_columns(df_base_raw)
 df_actas = normalize_columns(df_actas_raw)
+df_situaciones = normalize_columns(df_situaciones_raw) if not df_situaciones_raw.empty else pd.DataFrame()
 
 # Columnas base
 
@@ -292,6 +428,24 @@ COL_IE = best_col(df_base, ["nombre_ie_final"])
 
 # Acta viene de las hojas ACTA 01–06
 COL_ACTA = best_col(df_actas, ["acta"])
+
+
+# Columnas de la hoja SITUACIONES
+COL_SIT_REGION = best_col(df_situaciones, [
+    "region", "departamento", "departamento_final", "dpto", "d_dpto"
+]) if not df_situaciones.empty else None
+
+COL_SIT_UGEL = best_col(df_situaciones, [
+    "ugel", "dre_ugel", "d_dreugel"
+]) if not df_situaciones.empty else None
+
+COL_SIT_DESCRIPCION = best_col(df_situaciones, [
+    "situacion_adversa", "situación_adversa", "situacion", "situación",
+    "descripcion", "descripción", "detalle", "hallazgo"
+]) if not df_situaciones.empty else None
+
+
+
 
 # ==========================
 # 🔎 MODO DEBUG (opcional)
@@ -419,6 +573,7 @@ module = st.sidebar.radio(
         "Seguimiento y Control de Actas",
         "Análisis por Pregunta",
         "Generador de Informe PDF (Completo)",
+        "Situaciones Adversas",
     ],
 )
 
@@ -437,79 +592,52 @@ ugel_list = ["TODAS"] + sorted(df_base[COL_UGEL].dropna().unique().tolist())
 
 st.sidebar.markdown("---")
 
-st.sidebar.subheader("Filtros Globales")
+if module != "Situaciones Adversas":
 
-# Acta
-acta_sel = st.sidebar.selectbox("Acta", acta_list)
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Filtros Globales")
 
+    # Acta
+    acta_sel = st.sidebar.selectbox("Acta", acta_list)
 
+    df_actas_filtrado = apply_all_filters(
+        df_actas, acta_sel, "TODAS", "TODOS", "TODOS", "TODOS", "TODOS", "TODOS"
+    )
 
+    ugel_list = ["TODAS"] + sorted(df_actas_filtrado[COL_UGEL].dropna().unique().tolist())
+    ugel_sel = st.sidebar.selectbox("UGEL", ugel_list)
 
-# Filtrar los datos según el acta seleccionado
-df_actas_filtrado = apply_all_filters(df_actas, acta_sel, "TODAS", "TODOS", "TODOS", "TODOS", "TODOS", "TODOS") 
-
-# Filtrar el filtro UGEL en base a la selección de acta
-ugel_list = ["TODAS"] + sorted(df_actas_filtrado[COL_UGEL].dropna().unique().tolist())
-ugel_sel = st.sidebar.selectbox("UGEL", ugel_list)
-
-# Departamento
-if COL_DEP:
-    dep_list = ["TODOS"] + sorted(df_base[COL_DEP].dropna().unique())
-    dep_sel = st.sidebar.selectbox("Departamento", dep_list)
-else:
-    dep_sel = "TODOS"
-
-
-# Filtrar el código modular en base a los filtros previos (si es necesario)
-codmod_list = ["TODOS"] + sorted(df_base[df_base[COL_DEP] == dep_sel][COL_CODMOD].dropna().unique())
-codmod_sel = st.sidebar.selectbox("Código Modular", codmod_list)
-
-# Filtrar Institución Educativa en base al código modular seleccionado
-# Filtrar Institución Educativa en base a los filtros anteriores
-if COL_IE:
-    # Filtrar las instituciones educativas según el Departamento, Provincia y Código Modular
-    if dep_sel != "TODOS":
-        filtered_df = df_base[df_base[COL_DEP] == dep_sel]
-  
+    if COL_DEP:
+        dep_list = ["TODOS"] + sorted(df_base[COL_DEP].dropna().unique())
+        dep_sel = st.sidebar.selectbox("Departamento", dep_list)
     else:
-        filtered_df = df_base
+        dep_sel = "TODOS"
 
-    # Filtrar las Instituciones Educativas de acuerdo con el DataFrame filtrado
-    ie_list = ["TODOS"] + sorted(filtered_df[COL_IE].dropna().unique())
+    codmod_list = ["TODOS"] + sorted(
+        df_base[df_base[COL_DEP] == dep_sel][COL_CODMOD].dropna().unique()
+    )
+    codmod_sel = st.sidebar.selectbox("Código Modular", codmod_list)
 
-    # Mostrar el selectbox con las instituciones educativas filtradas
-    ie_sel = st.sidebar.selectbox("Institución Educativa", ie_list)
-else:
-    ie_sel = "TODOS"
+    if COL_IE:
+        if dep_sel != "TODOS":
+            filtered_df = df_base[df_base[COL_DEP] == dep_sel]
+        else:
+            filtered_df = df_base
 
+        ie_list = ["TODOS"] + sorted(filtered_df[COL_IE].dropna().unique())
+        ie_sel = st.sidebar.selectbox("Institución Educativa", ie_list)
+    else:
+        ie_sel = "TODOS"
 
+    df_base_filtrado = apply_all_filters(
+        df_base, acta_sel, ugel_sel, dep_sel,
+        "TODOS", "TODOS", codmod_sel, ie_sel
+    )
 
-# Después de los filtros, aplica todos los filtros globales de forma dinámica
-df_base_filtrado = apply_all_filters(
-    df_base,
-    acta_sel,
-    ugel_sel,
-    dep_sel,
-    "TODOS",  # Provincia se ha eliminado
-    "TODOS",  # Distrito se ha eliminado
-    codmod_sel,
-    ie_sel
-)
-
-
-
-
-
-df_actas_filtrado = apply_all_filters(
-    df_actas,
-    acta_sel,
-    ugel_sel,
-    dep_sel,
-    "TODOS",  # Provincia se ha eliminado
-    "TODOS",  # Distrito se ha eliminado
-    codmod_sel,
-    ie_sel
-)
+    df_actas_filtrado = apply_all_filters(
+        df_actas, acta_sel, ugel_sel, dep_sel,
+        "TODOS", "TODOS", codmod_sel, ie_sel
+    )
 
 
 
@@ -542,7 +670,28 @@ if module == "Inicio / KPIs Estratégicos":
 
     # KPIs
     total_registros = len(df_f)
-    total_iiee = df_f[COL_CODMOD].nunique(dropna=True)
+
+
+
+    # Limpieza de códigos modulares para evitar duplicados falsos
+    cod = (
+        df_f[COL_CODMOD]
+        .astype(str)
+        .str.strip()
+        .replace({"": pd.NA, "nan": pd.NA, "None": pd.NA})
+    )
+
+    # eliminar casos tipo 1234567.0
+    cod = cod.str.replace(r"\.0$", "", regex=True)
+
+    total_iiee = cod.dropna().nunique()
+
+
+
+
+
+
+
     total_ugel = df_f[COL_UGEL].nunique(dropna=True)
 
     c1, c2, c3, c4 = st.columns(4)
@@ -573,10 +722,13 @@ if module == "Inicio / KPIs Estratégicos":
 
     st.markdown("### 📍 Resumen por UGEL (Top)")
     resumen_ugel = (
-        df_f.groupby(COL_UGEL)[COL_CODMOD]
-            .nunique()
-            .sort_values(ascending=False)
-            .reset_index(name="iiee_unicas")
+    df_f.groupby(COL_UGEL)
+    .agg(
+        iiee_unicas=(COL_IE, "nunique"),
+        codigos_modulares=(COL_CODMOD, "nunique")
+    )
+    .reset_index()
+    .sort_values("iiee_unicas", ascending=False)
     )
     st.dataframe(resumen_ugel, use_container_width=True, height=420)
 
@@ -632,9 +784,14 @@ elif module == "Seguimiento y Control de Actas":
     st.sidebar.markdown("---")
     st.sidebar.subheader("Control")
     show_only_incomplete = st.sidebar.checkbox("Mostrar solo INCOMPLETOS", value=True)
-    min_actas = st.sidebar.slider("Mínimo de actas registradas", 0, 6, 0)
 
-    out = binm.copy()
+    # Aplicar el filtro de incompletos si está activado
+    if show_only_incomplete:
+        # Filtra los registros donde 'avance_actas' es menor a 6 (incompletos)
+        binm_incompletos = binm[binm["avance_actas"] < 6]
+        out = binm_incompletos.copy()
+    else:
+        out = binm.copy()  # Si no, muestra todos los registros
 
     # 🔗 Agregar nombre_ie_final desde BASE
     if COL_IE:
@@ -941,4 +1098,141 @@ elif module == "Generador de Informe PDF (Completo)":
             data=pdf_bytes,
             file_name="informe_visita_control_mvp.pdf",
             mime="application/pdf"
+        )
+
+    
+        # =========================================================
+# 5) SITUACIONES ADVERSAS
+# =========================================================
+elif module == "Situaciones Adversas":
+
+    st.subheader("⚠️ Situaciones Adversas")
+
+
+
+
+
+    # =========================================
+    # 🎛 FILTROS DEL MÓDULO SITUACIONES
+    # =========================================
+
+    st.markdown("### 🎛 Filtros")
+
+    colf1, colf2 = st.columns(2)
+
+    # 🔹 FILTRO POR REGIÓN
+    with colf1:
+        regiones = ["TODAS"] + sorted(df_situaciones["región"].dropna().unique())
+        region_sel_sit = st.selectbox(
+            "Filtrar por Región",
+            regiones,
+            key="filtro_region_situaciones"
+        )
+
+    # 🔹 FILTRO POR SITUACIÓN (columnas dinámicas)
+    with colf2:
+        columnas_excluir = ["región", "ugel"]
+
+        columnas_situaciones = [
+            col for col in df_situaciones.columns
+            if col not in columnas_excluir
+        ]
+
+        situacion_sel = st.selectbox(
+            "Filtrar por Tipo de Situación",
+            ["TODAS"] + columnas_situaciones,
+            key="filtro_situacion"
+        )
+
+
+
+
+
+
+
+
+    if df_situaciones.empty:
+        st.warning("No se encontró información en la hoja SITUACIONES.")
+        st.stop()
+
+    
+        st.write("Columnas encontradas:", df_situaciones.columns.tolist())
+        st.stop()
+
+    
+
+    df_sit_filtrado = df_situaciones.copy()
+
+    # Aplicar filtro Región
+    if region_sel_sit != "TODAS":
+        df_sit_filtrado = df_sit_filtrado[
+            df_sit_filtrado["región"] == region_sel_sit
+        ]
+
+    # Si selecciona una sola situación
+    if situacion_sel != "TODAS":
+
+        df_temp = df_sit_filtrado.copy()
+
+        # Convertir columna seleccionada a numérico
+        df_temp[situacion_sel] = pd.to_numeric(
+            df_temp[situacion_sel],
+            errors="coerce"
+        ).fillna(0)
+
+        resumen_situaciones = (
+            df_temp.groupby("región", as_index=False)[situacion_sel]
+            .sum()
+            .rename(columns={situacion_sel: "total_situaciones"})
+            .sort_values("total_situaciones", ascending=False)
+        )
+
+    else:
+        resumen_situaciones = construir_resumen_situaciones(df_sit_filtrado)
+
+
+
+
+
+
+
+
+
+
+    if resumen_situaciones.empty:
+        st.warning("No hay datos válidos.")
+        st.stop()
+
+    df_plot = resumen_situaciones.copy()
+    # 🔥 ELIMINAR REGIONES CON VALOR 0
+    df_plot = df_plot[df_plot["total_situaciones"] > 0]
+    if situacion_sel != "TODAS":
+        titulo = situacion_sel.upper()
+    else:
+        titulo = "TOTAL DE SITUACIONES ADVERSAS"
+
+    c1, c2 = st.columns(2)
+    
+
+    st.markdown("### 📊 Ranking")
+    fig = fig_situaciones_top(df_plot, titulo)
+    st.pyplot(fig, use_container_width=True)
+
+    st.markdown("### 🧾 Cuadro Resumen")
+    
+    st.dataframe(
+    df_plot,
+    use_container_width=True,
+    height=500
+    )
+
+
+
+    pdf_bytes = build_situaciones_pdf(df_plot, titulo)
+
+    st.download_button(
+        label="⬇️ Descargar Reporte PDF por Región",
+        data=pdf_bytes,
+        file_name="reporte_situaciones_adversas.pdf",
+        mime="application/pdf"
         )
